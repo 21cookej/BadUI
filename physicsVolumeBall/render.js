@@ -58,11 +58,54 @@ var canvas = document.getElementById('c'),
         return ((n - min1) / (max1 - min1)) * max2;
     },
     touchToMouse = e => {
-        let t = e.touches[e.touches.length - 1];
-        return t
+        return e.touches[e.touches.length - 1]
     },
-    π = 3.141592653589793,
-    𝜏 = π * 2;
+    audioCtx = null,
+    oscillator = null,
+    gain = null,
+    startAudio = () => {
+        audioCtx = new AudioContext();
+
+        // Create Gain (Volume Control) and connect to Speakers
+        gain = audioCtx.createGain();
+        gain.connect(audioCtx.destination);
+
+        // Create an OscillatorNode (Frequency Control) and connect to Gain
+        oscillator = audioCtx.createOscillator();
+        oscillator.connect(gain);
+
+        oscillator.type = "sine";
+        controlSound(440, 1)
+        oscillator.start();
+        return oscillator;
+    }
+    controlSound = (f, a) => {
+        if (audioCtx == null || (f === lastFreq && a === lastAmpl))
+            return;
+        lastFreq = f;
+        lastAmpl = a;
+        oscillator.frequency.setValueAtTime(f, audioCtx.currentTime);
+        gain.gain.value = a;
+    };
+
+let audioStopped = true,
+    lastFreq = 0,
+    lastAmpl = 0;
+window.toggleAudio = (e) => {
+    audioStopped = !audioStopped;
+    if (audioStopped)
+        gain.gain.value = 0;
+    else
+        if (oscillator === null)
+            startAudio();
+        else
+            lastFreq = 0;
+
+    if (audioStopped)
+        e.innerHTML = "Resume Audio Playback";
+    else
+        e.innerHTML = "Stop Audio Playback"
+}
 
 (r = () => {
     canvas.width = 300;
@@ -139,14 +182,14 @@ class Ball {
 
         this.render = () => {
             ctx.beginPath();
-            ctx.arc(vw(this.pos.x), vh(this.pos.y), vw(this.radius), 0, 𝜏);
+            ctx.arc(vw(this.pos.x), vh(this.pos.y), vw(this.radius), 0, Math.PI * 2);
             ctx.closePath();
 
             ctx.fillStyle = '#000';
             ctx.fill();
         }
     }
-};
+}
 
 class Selector {
     constructor() {
@@ -178,6 +221,7 @@ class Selector {
                     if (!ball.immune && (lineIntersects(ball.last, ball.pos) || circleIntersects(ball))) {
                         this.unselect();
                         ball.onLine = true;
+						ball.vel = {x: 0, y: 0}
                         ball.pos = new vec(ball.pos.x, 70);
                     }
                 }
@@ -228,7 +272,52 @@ class Selector {
 const ball = new Ball(),
     selector = new Selector();
 
+if (typeof Accelerometer !== "undefined") {
 
+	document.getElementById("support").innerHTML = "Your browser <b class=\"green\">SUPPORTS</b> the accelerometer API.";
+	let acc = new Accelerometer({frequency: 60});
+
+	acc.addEventListener("reading", () => {
+	    console.log("X Acceleration " + acc.x);
+	    console.log("Y Acceleration " + acc.y);
+
+		if (ball.onLine) {
+			ball.pos.x -= (acc.x / 3);
+			if (ball.pos.x > 80) {
+				ball.pos.x = 80;
+				ball.onLine = false;
+				selector.unselect();
+				setTimeout(() => {
+					ball.immune = false;
+				}, 100)
+			} else if (ball.pos.x < 20) {
+				ball.pos.x = 20;
+				ball.onLine = false;
+				selector.unselect();
+				setTimeout(() => {
+					ball.immune = false;
+				}, 100)
+			}
+		} else {
+			ball.vel.x -= (acc.x / 3);
+			let velocityY = (acc.y / 3);
+			if (acc.y < 0) {
+				ball.vel.y += (acc.y / 15);
+				if (ball.vel.y < -3) {
+					ball.vel.y = -3;
+				}
+			}
+		}
+	});
+
+	acc.start();
+} else {
+	document.getElementById("support").innerHTML = "Your browser <b class=\"red\">DOES NOT SUPPORT</b> the accelerometer API. Boooo :(";
+}
+
+const maxVolume = 0.7;
+const minFreq = 300;
+const maxFreq = 480;
 (f = i => {
     requestAnimationFrame(f);
     ctx.clearRect(0, 0, w, h);
@@ -244,8 +333,14 @@ const ball = new Ball(),
     ball.update();
     ball.render();
 
+    let volume = ~~map(ball.pos.x, 20, 80, 100);
+    let pitch = ~~(100 - ball.pos.y - 30);
+
+    if (!audioStopped)
+        controlSound((pitch/100)*(maxFreq-minFreq)+minFreq, maxVolume*volume/100)
+
     ctx.font = '20px Arial';
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
-    ctx.fillText(~~map(ball.pos.x, 20, 80, 100) + (~~(100 - ball.pos.y - 30) ? ' + ' + ~~(100 - ball.pos.y - 30) + 'i ' : '') + '% ', hh, hw);
+    ctx.fillText(volume + (~~(100 - ball.pos.y - 30) ? ' + ' + pitch + 'i ' : '') + '% ', hh, hw);
 })(0);
